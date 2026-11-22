@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aml_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-aml}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aml_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aml} -d ${POSTGRES_DB:-aml_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://aml:aml_password@postgres:5432/aml_platform}
+    volumes:
+      - ./database:/database:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+
+  migration:
+    build:
+      context: ./backend
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://aml:aml_password@postgres:5432/aml_platform}
+      PYTHONPATH: /app
+    volumes:
+      - ./database:/database:ro
+    command: alembic -c /database/alembic.ini upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    build:
+      context: .
+      dockerfile: database/seed/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://aml:aml_password@postgres:5432/aml_platform}
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+
+  simulator:
+    build:
+      context: ./transaction-simulator
+    environment:
+      API_BASE_URL: http://backend:8000
+      MODE: batch
+      BATCH_SIZE: 25
+      INTERVAL_SECONDS: 2
+    depends_on:
+      backend:
+        condition: service_started
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - kafka
+    entrypoint: ['/bin/bash','-c']
+    command: |
+      cub kafka-ready -b kafka:29092 1 60 && 
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bank.transactions --partitions 3 --replication-factor 1 && 
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bank.fraud.alerts --partitions 3 --replication-factor 1 && 
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bank.aml.alerts --partitions 3 --replication-factor 1 && 
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bank.transaction.results --partitions 3 --replication-factor 1 && 
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bank.dead-letter --partitions 3 --replication-factor 1
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:

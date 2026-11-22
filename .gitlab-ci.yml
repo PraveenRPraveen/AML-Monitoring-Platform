@@ -1,0 +1,27 @@
+stages:
+  - test
+  - build
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+backend-test:
+  stage: test
+  image: python:3.12-slim
+  cache:
+    paths:
+      - .cache/pip
+  before_script:
+    - pip install -r backend/requirements.txt
+  script:
+    - cd backend
+    - pytest -q
+
+docker-validation:
+  stage: build
+  image: docker:27-cli
+  services:
+    - docker:27-dind
+  script:
+    - docker compose config
+    - docker compose build
