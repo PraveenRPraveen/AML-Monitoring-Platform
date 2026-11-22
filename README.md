@@ -96,17 +96,21 @@ Demo accounts are for local development only.
 
 ## Project Structure
 
-text
-backend/                 FastAPI application and tests
-frontend/                React dashboard
-transaction-simulator/   Synthetic transaction generator
-database/                Migrations and seed data
-kafka/                   Kafka topic documentation
-snowflake/               Analytical export and SQL examples
-hadoop/                  Optional batch-processing documentation
-infrastructure/          AWS deployment guidance
-docs/                    Architecture documentation
-
+```text
+.
+├── backend/                 FastAPI application
+├── database/                Migrations and seed data
+├── docs/                    Architecture documentation
+├── frontend/                React dashboard
+├── hadoop/                  Optional batch-processing documentation
+├── infrastructure/         AWS deployment guidance
+├── kafka/                   Kafka topic documentation
+├── snowflake/               Analytical export and SQL examples
+├── tests/                   Project-level tests
+├── transaction-simulator/   Synthetic transaction generator
+├── docker-compose.yml       Local development services
+└── README.md                Project overview and setup
+```
 
 ## Testing
 
